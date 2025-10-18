@@ -50,6 +50,46 @@ def format_timestamp(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def is_valid_audio_file(file_path: Path) -> bool:
+    """
+    Validate if an audio file is valid and not corrupted using ffprobe.
+    
+    Args:
+        file_path: Path to the audio file to validate
+        
+    Returns:
+        True if the file is valid, False otherwise
+    """
+    try:
+        # Use ffprobe to check if file is valid
+        cmd = [
+            'ffprobe',
+            '-v', 'error',  # Only show errors
+            '-select_streams', 'a:0',  # Select first audio stream
+            '-show_entries', 'stream=codec_name,duration',  # Get basic info
+            '-of', 'default=noprint_wrappers=1',
+            str(file_path)
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10  # 10 second timeout for validation
+        )
+        
+        # If return code is 0 and we got output, file is valid
+        if result.returncode == 0 and result.stdout:
+            # Check if we got codec_name in output (indicates valid audio)
+            return 'codec_name' in result.stdout
+        
+        return False
+        
+    except (subprocess.TimeoutExpired, Exception) as e:
+        # If ffprobe fails or times out, consider file invalid
+        return False
+
+
 def parse_tracklist(tracklist: str) -> List[Tuple[str, str]]:
     """
     Parse the tracklist string into a list of (timestamp, song_name) tuples.
@@ -98,8 +138,16 @@ def split_audio(input_file: str, tracks: List[Tuple[str, str]], output_dir: str 
     # Get file extension
     file_ext = input_path.suffix
     
+    # Counter for statistics
+    skipped_count = 0
+    processed_count = 0
+    failed_count = 0
+    
     # Process each track
     for i, (timestamp, song_name) in enumerate(tracks):
+        track_num = i + 1
+        total_tracks = len(tracks)
+        
         start_time = parse_timestamp(timestamp)
         
         # Determine end time (start of next track or end of file)
@@ -115,9 +163,27 @@ def split_audio(input_file: str, tracks: List[Tuple[str, str]], output_dir: str 
         sanitized_name = sanitize_filename(song_name)
         output_file = output_dir / f"{sanitized_name}{file_ext}"
         
-        print(f"Extracting: {song_name} ({timestamp}) -> {output_file.name}")
+        print(f"[{track_num}/{total_tracks}] {song_name} ({timestamp})")
         
-        # Build ffmpeg command
+        # Check if file already exists and is valid
+        if output_file.exists():
+            file_size = output_file.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # First check file size (quick check)
+            if file_size < 1024 * 1024:  # < 1 MB
+                print(f"  ⚠ Exists but small ({file_size_mb:.2f} MB) - re-extracting")
+            else:
+                # File size looks good, validate it's a valid audio file
+                print(f"  Validating existing file ({file_size_mb:.2f} MB)...", end='', flush=True)
+                if is_valid_audio_file(output_file):
+                    print(f" ✓ Valid - skipping")
+                    skipped_count += 1
+                    continue
+                else:
+                    print(f" ✗ Invalid/corrupted - re-extracting")
+        
+        # Build ffmpeg command with progress output
         cmd = [
             'ffmpeg',
             '-i', str(input_path),
@@ -130,23 +196,60 @@ def split_audio(input_file: str, tracks: List[Tuple[str, str]], output_dir: str 
         cmd.extend([
             '-c', 'copy',  # Copy codec without re-encoding
             '-y',  # Overwrite output file if exists
+            '-loglevel', 'warning',  # Only show warnings/errors
+            '-stats',  # Show progress stats
             str(output_file)
         ])
         
-        # Execute ffmpeg
+        # Execute ffmpeg with real-time output
+        print(f"  → Extracting to: {output_file.name}")
         try:
-            result = subprocess.run(
+            # Use Popen for real-time output
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                check=True
+                bufsize=1
             )
-        except subprocess.CalledProcessError as e:
-            print(f"Error processing {song_name}: {e}")
-            print(f"stderr: {e.stderr}")
-            continue
+            
+            # Wait for process to complete
+            stdout, _ = process.communicate(timeout=300)  # 5 minute timeout
+            
+            if process.returncode == 0:
+                # Verify output file was created and has reasonable size
+                if output_file.exists():
+                    file_size_mb = output_file.stat().st_size / (1024 * 1024)
+                    print(f"  ✓ Success ({file_size_mb:.2f} MB)")
+                    processed_count += 1
+                else:
+                    print(f"  ✗ Failed: Output file not created")
+                    failed_count += 1
+            else:
+                print(f"  ✗ Failed with exit code {process.returncode}")
+                if stdout:
+                    print(f"  Error output: {stdout}")
+                failed_count += 1
+                
+        except subprocess.TimeoutExpired:
+            process.kill()
+            print(f"  ✗ Timeout: Process took longer than 5 minutes")
+            failed_count += 1
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            failed_count += 1
+        
+        print()  # Blank line between tracks
     
-    print(f"\nDone! Split {len(tracks)} tracks into {output_dir}")
+    # Print summary
+    print("=" * 50)
+    print(f"Summary:")
+    print(f"  Processed: {processed_count}")
+    print(f"  Skipped:   {skipped_count}")
+    print(f"  Failed:    {failed_count}")
+    print(f"  Total:     {len(tracks)}")
+    print("=" * 50)
+    print(f"\nOutput directory: {output_dir}")
 
 
 def read_tracklist_file(tracklist_file: str) -> str:

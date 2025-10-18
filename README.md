@@ -116,10 +116,16 @@ Lines starting with `#` are treated as comments and ignored.
 
 ## Features
 
-- Automatic filename sanitization
-- Supports HH:MM:SS and MM:SS timestamp formats
-- Uses ffmpeg's copy codec for fast, lossless splitting
-- Creates output folder automatically
-- Handles files with spaces and special characters
-- Batch processing support for multiple audio files
+- **Smart Skip with Validation**: Uses ffprobe to verify existing files are valid audio before skipping
+  - Validates file integrity, not just size
+  - Automatically re-extracts corrupted or invalid files
+  - Fast validation (< 1 second per file)
+- **Progress Tracking**: Shows track number, file size, and extraction status
+- **Timeout Protection**: 5-minute timeout per track to prevent hanging
+- **Error Handling**: Continues processing remaining tracks if one fails
+- **Automatic filename sanitization**: Removes invalid characters
+- **Flexible timestamps**: Supports both HH:MM:SS and MM:SS formats
+- **Fast extraction**: Uses ffmpeg's copy codec (no re-encoding)
+- **Batch processing**: Process multiple audio files at once
+- **Detailed summary**: Shows processed, skipped, and failed tracks
 
