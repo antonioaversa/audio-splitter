@@ -170,18 +170,14 @@ def split_audio(input_file: str, tracks: List[Tuple[str, str]], output_dir: str 
             file_size = output_file.stat().st_size
             file_size_mb = file_size / (1024 * 1024)
             
-            # First check file size (quick check)
-            if file_size < 1024 * 1024:  # < 1 MB
-                print(f"  ⚠ Exists but small ({file_size_mb:.2f} MB) - re-extracting")
+            # Validate it's a valid audio file using ffprobe
+            print(f"  Validating existing file ({file_size_mb:.2f} MB)...", end='', flush=True)
+            if is_valid_audio_file(output_file):
+                print(f" ✓ Valid - skipping")
+                skipped_count += 1
+                continue
             else:
-                # File size looks good, validate it's a valid audio file
-                print(f"  Validating existing file ({file_size_mb:.2f} MB)...", end='', flush=True)
-                if is_valid_audio_file(output_file):
-                    print(f" ✓ Valid - skipping")
-                    skipped_count += 1
-                    continue
-                else:
-                    print(f" ✗ Invalid/corrupted - re-extracting")
+                print(f" ✗ Invalid/corrupted - re-extracting")
         
         # Build ffmpeg command with progress output
         cmd = [

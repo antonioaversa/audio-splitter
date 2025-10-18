@@ -117,7 +117,7 @@ Lines starting with `#` are treated as comments and ignored.
 ## Features
 
 - **Smart Skip with Validation**: Uses ffprobe to verify existing files are valid audio before skipping
-  - Validates file integrity, not just size
+  - Validates file integrity regardless of size (short songs are OK!)
   - Automatically re-extracts corrupted or invalid files
   - Fast validation (< 1 second per file)
 - **Progress Tracking**: Shows track number, file size, and extraction status
